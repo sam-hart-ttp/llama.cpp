@@ -204,7 +204,7 @@ product assumptions:
 
 - explicit budget default rather than automatically active behavior;
 - SM 7.0 minimum, 512 MiB reserve, 256 KiB expert minimum, and 8-slot pool
-  minimum for the GTX 1650/Xavier class;
+  minimum for the SM 7.x Volta/Turing class;
 - public context parameters in addition to backend environment controls;
 - a separate prompt path and runtime profitability disablement.
 
@@ -226,14 +226,15 @@ selected-expert staging for sparse tensors, and a persistent decode hot set.
   dense placement/KV within the remaining VRAM, use a modest decode budget, and
   expect PCIe and host-RAM bandwidth to dominate. The checkpoint must still fit
   the laptop's 30 GiB RAM/mmap working environment.
-- **Jetson AGX Xavier, 32 GiB unified DRAM**: much more model capacity than the
-  laptop and no discrete PCIe host/device topology, but old Volta-class compute
-  and memory bandwidth make throughput uncertain. Use its matching JetPack
-  CUDA, not a CUDA 13-only build.
-- **Jetson AGX Thor, 128 GiB unified DRAM**: Qwen3.6-35B-A3B already fits, as the
-  user's daily deployment demonstrates. Streaming matters more for larger MoE
-  checkpoints, for keeping more context/other services resident, or as a
-  selective cache over CPU/unified allocations. SM 11.0 and much larger memory
+- **SM 7.2 Volta-class GPU, 32 GiB unified DRAM**: much more model capacity than
+  the laptop and no discrete PCIe host/device topology, but older compute and
+  memory bandwidth make throughput uncertain. Use a CUDA toolchain that still
+  targets SM 7.2, not a CUDA 13-only build.
+- **SM 11.0 Blackwell-class GPU, 128 GiB unified DRAM**: Qwen3.6-35B-A3B already
+  fits in this memory tier, as the user's daily deployment demonstrates.
+  Streaming matters more for larger MoE checkpoints, for keeping more
+  context/other services resident, or as a selective cache over CPU/unified
+  allocations. The newer compute architecture and much larger memory
   substantially change the profitable cache/prefill regime.
 
 The memory technique generalizes cleanly; profitable policy does not. Each
