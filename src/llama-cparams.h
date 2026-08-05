@@ -17,6 +17,9 @@ struct llama_cparams {
     uint32_t n_outputs_max;   // max outputs supported by the context
     int32_t  n_threads;       // number of threads to use for generation
     int32_t  n_threads_batch; // number of threads to use for batch processing
+    size_t   moe_cache_mib;
+    size_t   moe_prefetch_mib;
+    int32_t  moe_cache_stats_every;
 
     int32_t  nextn_layer_offset = 0;
 

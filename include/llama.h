@@ -373,6 +373,11 @@ extern "C" {
         uint32_t yarn_orig_ctx;    // YaRN original context size
         float    defrag_thold;     // [DEPRECATED] defragment the KV cache if holes/size > thold, <= 0 disabled (default)
 
+        // Experimental CUDA MoE streaming budgets. Zero disables the path.
+        size_t  moe_cache_mib;       // persistent decode-cache VRAM budget per selected device
+        size_t  moe_prefetch_mib;    // pinned-host prompt-streaming budget per selected device
+        int32_t moe_cache_stats_every; // periodic statistics interval, 0 = teardown only
+
         ggml_backend_sched_eval_callback cb_eval;
         void * cb_eval_user_data;
 

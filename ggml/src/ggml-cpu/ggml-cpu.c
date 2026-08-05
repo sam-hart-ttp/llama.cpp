@@ -54,6 +54,8 @@
 #    include "spacemit/ime.h"
 #endif
 
+#include "../ggml-backend-moe-cache.h"
+
 // Note: once we move threading into a separate C++ file
 // will use std::hardware_destructive_interference_size instead of hardcoding it here
 // and we'll use C++ attribute syntax.
@@ -1565,6 +1567,17 @@ static void ggml_compute_forward_mul_mat_id(
     const int n_ids = ids->ne[0]; // n_expert_used
     const int n_as  = ne02;       // n_expert
 
+    enum { MOE_CACHE_MAX_TOPK = 64 };
+    void *        moe_cache_node = NULL;
+    int           moe_cache_n_hits = 0;
+    int32_t       moe_cache_slot_idx[MOE_CACHE_MAX_TOPK];
+    int32_t       moe_cache_compact[MOE_CACHE_MAX_TOPK];
+    int32_t       moe_cache_experts[MOE_CACHE_MAX_TOPK];
+    int32_t       moe_cache_ids[MOE_CACHE_MAX_TOPK];
+    int32_t       moe_cache_tokens[MOE_CACHE_MAX_TOPK];
+    const float * moe_cache_acts[MOE_CACHE_MAX_TOPK];
+    float *       moe_cache_rows[MOE_CACHE_MAX_TOPK];
+
     void * wdata_cur = params->wdata;
 
     if (src1->type != vec_dot_type) {
@@ -1581,6 +1594,23 @@ static void ggml_compute_forward_mul_mat_id(
         incr_ptr_aligned(&wdata_cur, CACHE_LINE_SIZE * n_as, CACHE_LINE_SIZE);
 
     GGML_ASSERT(params->wsize >= (size_t)((char *) wdata_cur - (char *) params->wdata));
+
+    ggml_backend_buffer_t src0_buffer = src0->view_src ? src0->view_src->buffer : src0->buffer;
+    if (ith == 0) {
+        matrix_row_counts[0] = 0;
+        if (ids->ne[1] > 1 && ggml_moe_cache.prefill &&
+            src0->op == GGML_OP_NONE && src0_buffer &&
+            ggml_backend_buffer_get_usage(src0_buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
+            src1->type == GGML_TYPE_F32 &&
+            ggml_moe_cache.prefill(
+                    src0->name, src0->data, nb02, ne00, ne01, (int)type, ne02,
+                    ids->data, ids->nb[1], ids->nb[0],
+                    src1->data, nb12, nb11,
+                    dst->data, nb2, nb1,
+                    ids->ne[1], n_ids, ne11)) {
+            matrix_row_counts[0] = -1;
+        }
+    }
 
     if (src1->type != vec_dot_type) {
         char * wdata = params->wdata;
@@ -1619,7 +1649,26 @@ static void ggml_compute_forward_mul_mat_id(
 #endif
     }
 
-    if (ith == 0) {
+    if (ith == 0 && matrix_row_counts[0] != -1) {
+        if (ggml_moe_cache.begin && ggml_moe_cache.plan &&
+            ggml_moe_cache.dispatch && ggml_moe_cache.collect && ggml_moe_cache.end &&
+            src0->op == GGML_OP_NONE && src0_buffer &&
+            ggml_backend_buffer_get_usage(src0_buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
+            src1->type == GGML_TYPE_F32 &&
+            n_ids * ids->ne[1] <= MOE_CACHE_MAX_TOPK) {
+            moe_cache_node = ggml_moe_cache.begin(src0->name, src0->data, nb02,
+                                                  ne00, ne01, (int) type, ne02, ids->ne[1]);
+            if (moe_cache_node) {
+                int32_t expert_ids[MOE_CACHE_MAX_TOPK];
+                for (int64_t iid1 = 0; iid1 < ids->ne[1]; ++iid1) {
+                    for (int id = 0; id < n_ids; ++id) {
+                        expert_ids[iid1*n_ids + id] = *(const int32_t *) ((const char *) ids->data + iid1*ids->nb[1] + id*ids->nb[0]);
+                    }
+                }
+                ggml_moe_cache.plan(moe_cache_node, expert_ids, (int)(n_ids * ids->ne[1]), moe_cache_slot_idx);
+            }
+        }
+
         // initialize matrix_row_counts
         memset(matrix_row_counts, 0, n_as*sizeof(int64_t));
 
@@ -1628,11 +1677,47 @@ static void ggml_compute_forward_mul_mat_id(
             for (int id = 0; id < n_ids; ++id) {
                 const int32_t i02 = *(const int32_t *) ((const char *) ids->data + iid1*ids->nb[1] + id*ids->nb[0]);
 
-                assert(i02 >= 0 && i02 < n_as);
+                if (i02 < 0) {
+                    float * dst_row = (float *)((char *) dst->data + iid1*nb2 + id*nb1);
+                    memset(dst_row, 0, ne0*sizeof(float));
+                    continue;
+                }
+
+                assert(i02 < n_as);
+
+                if (moe_cache_node && moe_cache_slot_idx[iid1*n_ids + id] >= 0) {
+                    const int64_t i11 = id % ne11;
+                    moe_cache_compact[moe_cache_n_hits] = moe_cache_slot_idx[iid1*n_ids + id];
+                    moe_cache_experts[moe_cache_n_hits] = i02;
+                    moe_cache_ids[moe_cache_n_hits]     = id;
+                    moe_cache_tokens[moe_cache_n_hits]  = iid1;
+                    moe_cache_acts[moe_cache_n_hits]    = (const float *) ((const char *) src1->data + i11*nb11 + iid1*nb12);
+                    moe_cache_rows[moe_cache_n_hits]    = (float *) ((char *) dst->data + iid1*nb2 + id*nb1);
+                    moe_cache_n_hits++;
+                    continue;
+                }
 
                 MMID_MATRIX_ROW(i02, matrix_row_counts[i02]) = (struct mmid_row_mapping) {id, iid1};
                 matrix_row_counts[i02] += 1;
             }
+        }
+
+        if (moe_cache_node && moe_cache_n_hits > 0) {
+            if (!ggml_moe_cache.dispatch(moe_cache_node, (int) type, ne00, ne01,
+                                         moe_cache_n_hits, moe_cache_compact, moe_cache_acts)) {
+                for (int i = 0; i < moe_cache_n_hits; i++) {
+                    const int expert = moe_cache_experts[i];
+                    MMID_MATRIX_ROW(expert, matrix_row_counts[expert]) =
+                        (struct mmid_row_mapping) {moe_cache_ids[i], moe_cache_tokens[i]};
+                    matrix_row_counts[expert] += 1;
+                }
+                moe_cache_n_hits = 0;
+                ggml_moe_cache.end(moe_cache_node);
+                moe_cache_node = NULL;
+            }
+        } else if (moe_cache_node) {
+            ggml_moe_cache.end(moe_cache_node);
+            moe_cache_node = NULL;
         }
     }
 
@@ -1643,6 +1728,10 @@ static void ggml_compute_forward_mul_mat_id(
     }
 
     ggml_barrier(params->threadpool);
+
+    if (matrix_row_counts[0] == -1) {
+        return;
+    }
 
     for (int cur_a = 0; cur_a < n_as; ++cur_a) {
         const int64_t cne1 = matrix_row_counts[cur_a];
@@ -1703,6 +1792,24 @@ static void ggml_compute_forward_mul_mat_id(
 
             current_chunk = atomic_fetch_add_explicit(current_chunk_ctr, 1, memory_order_relaxed);
         }
+    }
+
+    if (ith == 0 && moe_cache_node) {
+        if (!ggml_moe_cache.collect(moe_cache_node, moe_cache_n_hits, moe_cache_rows, ne0)) {
+            const void * wdata = (src1->type == vec_dot_type) ? src1->data : params->wdata;
+            const size_t row_size = ggml_row_size(vec_dot_type, ne10);
+            for (int i = 0; i < moe_cache_n_hits; i++) {
+                const int expert = moe_cache_experts[i];
+                const int64_t row = matrix_row_counts[expert];
+                MMID_MATRIX_ROW(expert, row) = (struct mmid_row_mapping) {moe_cache_ids[i], moe_cache_tokens[i]};
+                ggml_compute_forward_mul_mat_id_one_chunk(
+                    dst, src0, src1, ids, expert,
+                    0, ne01, row, row + 1,
+                    (const char *) src0->data + expert * nb02,
+                    matrix_rows, row_size, src1_cont, wdata);
+            }
+        }
+        ggml_moe_cache.end(moe_cache_node);
     }
 }
 

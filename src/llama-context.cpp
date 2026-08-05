@@ -109,6 +109,9 @@ llama_context::llama_context(
 
     cparams.n_threads               = params.n_threads;
     cparams.n_threads_batch         = params.n_threads_batch;
+    cparams.moe_cache_mib           = params.moe_cache_mib;
+    cparams.moe_prefetch_mib        = params.moe_prefetch_mib;
+    cparams.moe_cache_stats_every   = params.moe_cache_stats_every;
     cparams.yarn_ext_factor         = params.yarn_ext_factor  >= 0.0f ? params.yarn_ext_factor  : hparams.yarn_ext_factor;
     cparams.yarn_attn_factor        = params.yarn_attn_factor >= 0.0f ? params.yarn_attn_factor : hparams.yarn_attn_factor;
     cparams.yarn_beta_fast          = params.yarn_beta_fast   >= 0.0f ? params.yarn_beta_fast   : hparams.yarn_beta_fast;
@@ -598,6 +601,12 @@ void llama_context::sched_reserve() {
     gf_res_reserve.reset(new llm_graph_result(max_nodes));
 
     sched.reset(ggml_backend_sched_new(backend_ptrs.data(), backend_buft.data(), backend_ptrs.size(), max_nodes, cparams.pipeline_parallel, cparams.op_offload));
+    if (cparams.moe_cache_mib > 0 || cparams.moe_prefetch_mib > 0 ||
+        cparams.moe_cache_stats_every > 0) {
+        ggml_backend_sched_set_moe_streaming(
+                sched.get(), cparams.moe_cache_mib, cparams.moe_prefetch_mib,
+                cparams.moe_cache_stats_every);
+    }
 
     llama_memory_context_ptr mctx;
     if (memory) {
@@ -633,6 +642,13 @@ void llama_context::sched_reserve() {
                 LLAMA_LOG_WARN("%s: compute buffer allocation failed, retrying without pipeline parallelism\n", __func__);
                 cparams.pipeline_parallel = false;
                 sched.reset(ggml_backend_sched_new(backend_ptrs.data(), backend_buft.data(), backend_ptrs.size(), max_nodes, false, cparams.op_offload));
+                if (cparams.moe_cache_mib > 0 || cparams.moe_prefetch_mib > 0 ||
+                    cparams.moe_cache_stats_every > 0) {
+                    ggml_backend_sched_set_moe_streaming(
+                            sched.get(), cparams.moe_cache_mib,
+                            cparams.moe_prefetch_mib,
+                            cparams.moe_cache_stats_every);
+                }
                 gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get());
             }
             if (!gf) {
@@ -3503,6 +3519,9 @@ llama_context_params llama_context_default_params() {
         /*.yarn_beta_slow              =*/ -1.0f,
         /*.yarn_orig_ctx               =*/ 0,
         /*.defrag_thold                =*/ -1.0f,
+        /*.moe_cache_mib               =*/ 0,
+        /*.moe_prefetch_mib            =*/ 0,
+        /*.moe_cache_stats_every       =*/ 0,
         /*.cb_eval                     =*/ nullptr,
         /*.cb_eval_user_data           =*/ nullptr,
         /*.type_k                      =*/ GGML_TYPE_F16,

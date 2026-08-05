@@ -179,6 +179,45 @@ static void test(void) {
     assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
     assert(params.load_mode == LLAMA_LOAD_MODE_DIRECT_IO);
 
+    {
+        common_params moe_params;
+        argv = {"binary_name", "-m", "model_file.gguf",
+                "--moe-cache-mib", "256",
+                "--moe-prefetch-mib", "32", "--moe-cache-stats"};
+        assert(true == common_params_parse(
+                argv.size(), list_str_to_char(argv).data(),
+                moe_params, LLAMA_EXAMPLE_COMMON));
+        assert(moe_params.moe_cache_force);
+        assert(moe_params.moe_cache_mib == 256);
+        assert(moe_params.moe_prefetch_mib == 32);
+        assert(moe_params.moe_cache_stats);
+        assert(moe_params.verbosity >= 4);
+        assert(moe_params.no_extra_bufts);
+        const char * cache_budget = getenv("GGML_CUDA_MOE_CACHE_BUDGET_MB");
+        const char * prefetch_budget = getenv("GGML_CUDA_MOE_PREFETCH_BUDGET_MB");
+        assert(cache_budget && std::string(cache_budget) == "256");
+        assert(prefetch_budget && std::string(prefetch_budget) == "32");
+
+        argv = {"binary_name", "--moe-cache-mib", "-1"};
+        assert(false == common_params_parse(
+                argv.size(), list_str_to_char(argv).data(),
+                moe_params, LLAMA_EXAMPLE_COMMON));
+        const char * moe_env[] = {
+            "GGML_CUDA_MOE_CACHE",
+            "GGML_CUDA_MOE_CACHE_MODE",
+            "GGML_CUDA_MOE_CACHE_BUDGET_MB",
+            "GGML_CUDA_MOE_PREFETCH_BUDGET_MB",
+            "GGML_CUDA_MOE_CACHE_STATS",
+        };
+        for (const char * name : moe_env) {
+#ifdef _WIN32
+            _putenv_s(name, "");
+#else
+            unsetenv(name);
+#endif
+        }
+    }
+
     // multi-value args (CSV)
     argv = {"binary_name", "--lora", "file1.gguf,\"file2,2.gguf\",\"file3\"\"3\"\".gguf\",file4\".gguf"};
     assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));

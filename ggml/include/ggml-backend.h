@@ -351,6 +351,10 @@ extern "C" {
     // Set a callback to be called for each resulting node during graph compute
     GGML_API void                 ggml_backend_sched_set_eval_callback(ggml_backend_sched_t sched, ggml_backend_sched_eval_callback callback, void * user_data);
 
+    // Configure the experimental CUDA MoE streaming extension for this
+    // scheduler. Zero budgets disable the corresponding path.
+    GGML_API void                 ggml_backend_sched_set_moe_streaming(ggml_backend_sched_t sched, size_t cache_mib, size_t prefetch_mib, int stats_every);
+
     //
     // Meta backend
     //

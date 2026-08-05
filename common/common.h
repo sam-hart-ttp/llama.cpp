@@ -578,6 +578,10 @@ struct common_params {
     bool check_tensors     = false; // validate tensor data
     bool no_op_offload     = false; // globally disable offload host tensor operations to device
     bool no_extra_bufts    = false; // disable extra buffer types (used for weight repacking)
+    bool moe_cache_force   = false; // a fixed cache budget requires canonical CPU weights
+    bool moe_cache_stats   = false; // print periodic expert cache statistics
+    size_t moe_cache_mib   = 0;     // persistent decode cache VRAM budget
+    size_t moe_prefetch_mib = 0;    // prefill staging budget
     bool no_host           = false; // bypass host buffer allowing extra buffers to be used
 
     bool single_turn       = false; // single turn chat conversation
