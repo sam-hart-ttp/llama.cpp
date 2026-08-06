@@ -109,7 +109,12 @@ TraceNext ==
     \/ /\ ThreadsWithEvents = {}
        /\ UNCHANGED <<vars, pc>>
 
-TraceSpec == TraceInit /\ [][TraceNext]_<<vars, pc>>
+\* Weak fairness excludes indefinite stuttering, which would otherwise falsify
+\* TraceFullyConsumed even for a fully consumable log.
+TraceSpec ==
+    /\ TraceInit
+    /\ [][TraceNext]_<<vars, pc>>
+    /\ WF_<<vars, pc>>(TraceNext)
 
 TraceFullyConsumed == <>(ThreadsWithEvents = {})
 
