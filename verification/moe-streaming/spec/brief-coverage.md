@@ -34,10 +34,10 @@ executable model module and named by a final cfg.
 | `HiddenTransfersAreOpportunities` | `MoEPrefetch.tla:158` | yes | `MoEPrefetchDisableHunt.cfg` | — |
 | `CompletionIsTotal` | `MoEPrefetch.tla:160` | yes | both prefetch hunts | — |
 | `DisabledRequiresFallbackOrCompletion` | `MoEPrefetch.tla:162` | yes | `MoEPrefetchDisableHunt.cfg` | — |
-| `CapacityAccounting` | `MoEPartitionPolicy.tla:111` | yes | `MoEPartitionPolicy.cfg`, `MoEPartitionGlobalLRUHunt.cfg` | — |
-| `ProtectedSharesRemain` | `MoEPartitionPolicy.tla:119` | yes | `MoEPartitionPolicy.cfg`, `MoEPartitionGlobalLRUHunt.cfg` | — |
-| `UnderQuotaHasDonor` | `MoEPartitionPolicy.tla:125` | yes | `MoEPartitionPolicy.cfg` | — |
-| `ReadyDemandCanProgress` | `MoEPartitionPolicy.tla:132` | yes | `MoEPartitionPolicy.cfg` | — |
+| `CapacityAccounting` | `MoEPartitionPolicy.tla:113` | yes | `MoEPartitionPolicy.cfg`, `MoEPartitionGlobalLRUHunt.cfg` | — |
+| `ProtectedSharesRemain` | `MoEPartitionPolicy.tla:121` | yes | `MoEPartitionPolicy.cfg`, `MoEPartitionGlobalLRUHunt.cfg` | — |
+| `UnderQuotaHasDonor` | `MoEPartitionPolicy.tla:127` | yes | `MoEPartitionPolicy.cfg` | — |
+| `ReadyDemandCanProgress` | `MoEPartitionPolicy.tla:134` | yes | `MoEPartitionPolicy.cfg` | — |
 
 ## Table 3: model-checkable findings
 

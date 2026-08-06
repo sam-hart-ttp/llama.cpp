@@ -33,6 +33,8 @@ Threshold(partition) ==
 
 Ready(partition) == demand[partition] + 1 >= Threshold(partition)
 
+\* epoch marks slot-content churn: without it a same-owner replacement with
+\* demand already at zero would be a stutter step. Only TypeOK reads it.
 Bump(value) == (value + 1) % 3
 
 ProtectedAfter(owners) ==
