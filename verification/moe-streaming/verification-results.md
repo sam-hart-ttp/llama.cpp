@@ -1,8 +1,9 @@
 # Verification results
 
-Date: 2026-08-04. Source base: llama.cpp `1c3c9674d`, local branch
-`moe-streaming-research`, with the uncommitted extension described in this
-directory.
+Date: 2026-08-04; revalidated 2026-08-06. Source base: upstream llama.cpp
+`1c3c9674d` plus this extension, since committed on `moe-streaming-research`
+as `7cc3ffbc7` (implementation) and `dcacef205` (verification models), then
+merged with upstream `b10289` in `9b23d90c5`.
 
 ## Build and runtime tests
 
@@ -57,10 +58,24 @@ TLC 2.20 used 12 workers and exhaustive breadth-first search.
 | `MoECacheStalePublishHunt.cfg` | find injected bug | **Expected violation**: `PublishedGenerationIsCurrent`, depth 6 |
 | `MoECacheEarlySkipHunt.cfg` | find injected bug | **Expected violation**: `SkippedRowsAreBacked`, 76 generated / 44 distinct, depth 9 |
 
-The three failing configurations intentionally relax one implementation guard;
+The four failing configurations intentionally relax one implementation guard;
 they are mutation tests of invariant sensitivity, not reported implementation
-bugs. SANY accepts `MoECache.tla`, `MoEPrefetch.tla`, and the timebox
-`Trace.tla`.
+bugs. SANY accepts `MoECache.tla`, `MoEPrefetch.tla`, `MoEPartitionPolicy.tla`,
+and the timebox `Trace.tla`.
+
+Hunt-row depths are detection-time values; they vary with TLC version and
+worker scheduling, while the violated invariant and the exhaustive-run state
+counts are the stable signals. A 2026-08-06 rerun with a current TLC nightly
+reproduced every row with identical state counts. The same pass repaired the
+trace harness (string constants in `Trace.cfg`, weak fairness in `TraceSpec`,
+and the environment-variable `JSON` override): as originally committed it
+compared model values against JSON strings, so TLC accepted any log after
+matching zero events. TLC now validates the hand-written smoke trace
+`traces/example-decode.ndjson` end to end (5 states, 4 distinct, all three
+events consumed), and rejects the same trace with one post-state field
+falsified: the corrupted event matches no action and TLC stops at a deadlock.
+That negative case is what distinguishes a working validator from the
+previous always-green one.
 
 ## Lean 4
 
@@ -69,14 +84,16 @@ bugs. SANY accepts `MoECache.tla`, `MoEPrefetch.tla`, and the timebox
     verification/moe-streaming/lean/MoEPartition.lean
 ```
 
-Lean 4.28.0 exits 0 with no proof warnings and no `sorry`. The launcher reports
-only that it cannot query a newer release in the offline environment. The proof establishes that
-hit/miss partitioning preserves the additive multiset of route contributions,
-expert grouping preserves that expert's contribution, and every bounded prefix
-cut plus remainder preserves it. It also proves the two-partition fair-share
+Lean 4.28.0 exits 0 with no proof warnings and no `sorry`; a 2026-08-06 rerun
+on Lean 4.32.2 also exits 0. The launcher reports only that it cannot query a
+newer release in the offline environment. The proof establishes that hit/miss
+partitioning preserves the additive multiset of route contributions, expert
+grouping preserves that expert's contribution, and every bounded prefix cut
+plus remainder preserves it. It also proves the two-partition fair-share
 lemma: a full pool and under-target requester imply an over-target donor, whose
 target survives a one-slot reclaim. It abstracts from IEEE-754 rounding and
-CUDA kernel correctness.
+CUDA kernel correctness. The file imports only `Std`, so it checks from a bare
+`elan` toolchain with no lakefile or dependency fetch.
 
 ## Mathematical scope
 
