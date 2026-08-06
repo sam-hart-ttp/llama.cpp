@@ -54,19 +54,19 @@ documented CPU integration boundaries. Every captured field is checked by
 
 | Spec action | Code location | Trigger point | Event | Extra fields |
 | --- | --- | --- | --- | --- |
-| `BeginHit(e,s)` | `ggml/src/ggml-cuda/moe-cache.cu:1688-1699` | Around valid lookup + reader increment, still under `session.mu` | `BeginHit` | `expert`, `slot` |
-| `ObserveMiss(e)` | `moe-cache.cu:1700-1724` and `ggml-cpu.c:1675-1702` | After miss is retained as a CPU row | `ObserveMiss` | `expert` |
-| `Admit(e,s)` | `moe-cache.cu:1732-1777` | Around slot generation/reservation and successful queue insertion | `Admit` | `expert`, `slot` |
-| `CancelFill(s)` | `moe-cache.cu:2482-2488`, queue cancellation helper | After a copying/queued slot is cancelled under `session.mu` | `CancelFill` | `slot` |
-| `PublishFill(s)` | `moe-cache.cu:749-770` | Around the generation/key check and valid publication | `PublishFill` | `slot` |
-| `DispatchAccept` | `moe-cache.cu:1940-1948`, `ggml-cpu.c:1705-1717` | After CUDA work is completely accepted, before the CPU worker barrier | `DispatchAccept` | none |
-| `DispatchReject` | `ggml-cpu.c:1705-1717` | After all hit mappings have been restored, before the barrier | `DispatchReject` | none |
+| `BeginHit(e,s)` | `ggml/src/ggml-cuda/moe-cache.cu:1851-1861` | Around valid lookup + reader increment, still under `session.mu` | `BeginHit` | `expert`, `slot` |
+| `ObserveMiss(e)` | `moe-cache.cu:1862-1901` and `ggml-cpu.c:1676-1703` | After miss is retained as a CPU row | `ObserveMiss` | `expert` |
+| `Admit(e,s)` | `moe-cache.cu:1903-1981` | Around slot generation/reservation and successful queue insertion | `Admit` | `expert`, `slot` |
+| `CancelFill(s)` | `moe-cache.cu:1297-1318`, called at `2691-2693` | After a copying/queued slot is cancelled under `session.mu` | `CancelFill` | `slot` |
+| `PublishFill(s)` | `moe-cache.cu:875-894` | Around the generation/key check and valid publication | `PublishFill` | `slot` |
+| `DispatchAccept` | `moe-cache.cu:2145-2153`, `ggml-cpu.c:1705-1721` | After CUDA work is completely accepted, before the CPU worker barrier | `DispatchAccept` | none |
+| `DispatchReject` | `ggml-cpu.c:1706-1717` | After all hit mappings have been restored, before the barrier | `DispatchReject` | none |
 | `CpuComplete` | `ggml-cpu.c:1736-1795` | After all modeled CPU obligations for the node finish | `CpuComplete` | none |
-| `CollectSuccess` | `moe-cache.cu:1972-1992` | After stream synchronization and result copies | `CollectSuccess` | none |
-| `CollectFailure` | `ggml-cpu.c:1797-1811` | After every skipped row has been recomputed | `CollectFailure` | none |
-| `EndNode` | `moe-cache.cu:2008-2043` | After reader pins and active-source references are released | `EndNode` | none |
-| `StartInvalidate(e)` | `moe-cache.cu:2482-2489` | Immediately after queued cancellation, before waiting for readers | `StartInvalidate` | `expert` |
-| `FinishInvalidate(e)` | `moe-cache.cu:2490-2541` | After reader/in-flight drain and overlapping slot reset | `FinishInvalidate` | `expert` |
+| `CollectSuccess` | `moe-cache.cu:2177-2197` | After stream synchronization and result copies | `CollectSuccess` | none |
+| `CollectFailure` | `ggml-cpu.c:1798-1811` | After every skipped row has been recomputed | `CollectFailure` | none |
+| `EndNode` | `moe-cache.cu:2229-2248` | After reader pins and active-source references are released | `EndNode` | none |
+| `StartInvalidate(e)` | `moe-cache.cu:2687-2693` | Immediately after queued cancellation, before waiting for readers | `StartInvalidate` | `expert` |
+| `FinishInvalidate(e)` | `moe-cache.cu:2695-2783` | After reader/in-flight drain and overlapping slot reset | `FinishInvalidate` | `expert` |
 
 The `CollectFailure` model transition represents “CUDA collection failed, then
 the CPU recomputation obligation was restored”; record it after the recompute,

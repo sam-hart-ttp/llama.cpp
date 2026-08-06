@@ -29,7 +29,7 @@ Init ==
     /\ completedCorrect = FALSE
 
 \* Select the alternating staging slot and begin the next expert copy:
-\* moe-cache.cu:2317-2345, 2408-2414.
+\* moe-cache.cu:2522-2551, 2613-2619.
 StageNext ==
     /\ ~disabled
     /\ ~completedCorrect
@@ -43,7 +43,7 @@ StageNext ==
     /\ UNCHANGED <<currentExpert, outputs, fallbackRequired, disabled,
                     opportunities, fullyHidden, completedCorrect>>
 
-\* expert-ready CUDA event publication: moe-cache.cu:2336-2344.
+\* expert-ready CUDA event publication: moe-cache.cu:2541-2550.
 CopyComplete(s) ==
     /\ s \in Slots
     /\ stageState[s] = "copying"
@@ -52,7 +52,7 @@ CopyComplete(s) ==
                     fallbackRequired, disabled, opportunities, fullyHidden,
                     completedCorrect>>
 
-\* Compute stream waits on the selected ready event: moe-cache.cu:2357-2363.
+\* Compute stream waits on the selected ready event: moe-cache.cu:2562-2568.
 StartCompute(s) ==
     /\ s \in Slots
     /\ currentExpert = None
@@ -65,7 +65,7 @@ StartCompute(s) ==
                     disabled, opportunities, fullyHidden, completedCorrect>>
 
 \* Chunked MMVQ, result copy, overlap query, and slot-consumed publication:
-\* moe-cache.cu:2365-2445.
+\* moe-cache.cu:2570-2650.
 FinishCompute(s) ==
     /\ s \in Slots
     /\ stageState[s] = "computing"
@@ -85,7 +85,7 @@ FinishCompute(s) ==
     /\ UNCHANGED <<nextExpert, fallbackRequired, disabled>>
 
 \* Any partial pipeline error synchronizes both streams and returns false:
-\* moe-cache.cu:2467-2478; ggml-cpu.c:1601-1612 then runs the stock node.
+\* moe-cache.cu:2672-2679; ggml-cpu.c:1601-1612 then runs the stock node.
 PipelineFailure ==
     /\ ~fallbackRequired
     /\ ~completedCorrect
@@ -98,7 +98,7 @@ PipelineFailure ==
                     fullyHidden, completedCorrect>>
 
 \* Disable after 32 measured opportunities with no fully hidden upload:
-\* moe-cache.cu:2452-2463.
+\* moe-cache.cu:2657-2669.
 SelfDisable ==
     /\ ~disabled
     /\ ~completedCorrect

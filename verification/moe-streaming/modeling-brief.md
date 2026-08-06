@@ -3,7 +3,7 @@
 ## 1. System overview
 
 The target is the experimental CUDA MoE streaming extension in this llama.cpp
-fork. Its core is about 2,600 lines of C++/CUDA plus a 110-line CPU integration
+fork. Its core is about 2,900 lines of C++/CUDA plus a 110-line CPU integration
 path. It is **Category B (concurrent runtime)**: a CPU graph thread, CPU worker
 threads, CUDA streams, and background fill workers transfer ownership of expert
 slots under a mutex, reader pins, generations, events, and condition variables.
@@ -28,12 +28,12 @@ matching publication generation.
 
 **Evidence**:
 
-- `moe-cache.cu:1660-1703` increments `readers` while holding `session.mu`.
-- `moe-cache.cu:1732-1754` rejects pinned eviction and increments generation
-  before reuse.
-- `moe-cache.cu:749-770` publishes only when slot state, key, and generation
+- `moe-cache.cu:1840-1866` increments `readers` while holding `session.mu`.
+- `moe-cache.cu:588-627` and `moe-cache.cu:1903-1952` reject pinned eviction
+  and increment the generation before reuse.
+- `moe-cache.cu:875-894` publishes only when slot state, key, and generation
   still match the job.
-- `moe-cache.cu:2008-2043` releases pins only after dispatch/collection ends.
+- `moe-cache.cu:2229-2248` releases pins only after dispatch/collection ends.
 
 **Affected paths**: `moe_cache_plan`, `moe_cache_worker`,
 `moe_cache_slot_reset`, `moe_cache_end`.
@@ -53,10 +53,10 @@ be computed zero times.
 
 **Evidence**:
 
-- `ggml-cpu.c:1675-1702` partitions hit and miss rows.
-- `ggml-cpu.c:1705-1717` restores all hits before the existing worker barrier if
+- `ggml-cpu.c:1676-1703` partitions hit and miss rows.
+- `ggml-cpu.c:1706-1717` restores all hits before the existing worker barrier if
   dispatch is rejected.
-- `ggml-cpu.c:1797-1811` recomputes every skipped hit if collection fails.
+- `ggml-cpu.c:1798-1811` recomputes every skipped hit if collection fails.
 - An earlier implementation added a second barrier on only one thread and
   deadlocked the test; the current sentinel uses the kernel's existing barrier
   at `ggml-cpu.c:1730-1734`.
@@ -80,9 +80,9 @@ copies before memory changes.
 
 - `ggml-backend.cpp:94-103` limits notifications to host weight buffers.
 - Public clear/reset/set/memset/copy/free paths notify before mutation.
-- `moe-cache.cu:2482-2505` cancels queued jobs and waits for overlapping active
+- `moe-cache.cu:2687-2710` cancels queued jobs and waits for overlapping active
   nodes or the fill worker's in-flight source.
-- `moe-cache.cu:2507-2541` resets overlapping slots and discovery records.
+- `moe-cache.cu:2712-2783` resets overlapping slots and discovery records.
 
 **Affected paths**: backend buffer/tensor mutation API, fill worker,
 `moe_cache_invalidate_session`.
@@ -103,10 +103,10 @@ the complete CPU node.
 
 **Evidence**:
 
-- `moe-cache.cu:2317-2345` waits for ready/consumed events before slot reuse.
-- `moe-cache.cu:2357-2445` orders ready, compute, result, and consumed events.
-- `moe-cache.cu:2467-2478` synchronizes both streams before returning failure.
-- `ggml-cpu.c:1598-1612` accepts the streamed result only on a whole-node true
+- `moe-cache.cu:2522-2551` waits for ready/consumed events before slot reuse.
+- `moe-cache.cu:2562-2650` orders ready, compute, result, and consumed events.
+- `moe-cache.cu:2672-2679` synchronizes both streams before returning failure.
+- `ggml-cpu.c:1599-1613` accepts the streamed result only on a whole-node true
   return.
 
 **Affected paths**: `moe_cache_prefill`, CPU prompt branch.
@@ -123,8 +123,8 @@ acceptance leaves missing route rows.
 must transition only to complete CPU fallback rather than leaving partial staged
 state or incomplete output.
 
-**Evidence**: `moe-cache.cu:2452-2463` disables after 32 opportunities with no
-fully hidden transfer; later calls reject at `moe-cache.cu:2159-2165` and the CPU
+**Evidence**: `moe-cache.cu:2657-2669` disables after 32 opportunities with no
+fully hidden transfer; later calls reject at `moe-cache.cu:2395-2423` and the CPU
 path executes normally.
 
 **Affected paths**: prefill statistics/update, entry eligibility, CPU fallback.
@@ -145,11 +145,11 @@ entry or reclaim from a different partition strictly over target.
 
 **Evidence**:
 
-- `moe-cache.cu:559-628` caches deterministic targets and searches per-layer
+- `moe-cache.cu:557-627` caches deterministic targets and searches per-layer
   recency lists for legal same-layer or over-target candidates.
-- `moe-cache.cu:1881-1945` selects the low admission threshold below target,
+- `moe-cache.cu:1880-1945` selects the low admission threshold below target,
   throttles replacement at target, and records local versus reclaim eviction.
-- `test-moe-cache.cpp:1305-1398` fills a 16-slot pool from one layer, reclaims
+- `test-moe-cache.cpp:1305-1399` fills a 16-slot pool from one layer, reclaims
   four shares, churns one layer, and requires all other layers to remain hot.
 
 **Affected paths**: `moe_cache_plan`, `moe_cache_lru_candidate`, pool discovery,

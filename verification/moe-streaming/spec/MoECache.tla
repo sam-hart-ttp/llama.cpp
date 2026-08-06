@@ -35,7 +35,7 @@ Init ==
     /\ completedCorrect = TRUE
     /\ invalidating = {}
 
-\* Cache lookup and reader pin: moe-cache.cu:1660-1703.
+\* Cache lookup and reader pin: moe-cache.cu:1840-1866.
 BeginHit(e, s) ==
     /\ nodeState = "idle"
     /\ e \in Experts \ invalidating
@@ -52,8 +52,8 @@ BeginHit(e, s) ==
     /\ UNCHANGED <<slotState, slotExpert, generation, publishedGeneration,
                     jobExpert, jobGeneration, completedCorrect, invalidating>>
 
-\* Miss remains a CPU obligation: moe-cache.cu:1682-1724 and
-\* ggml-cpu.c:1675-1702.
+\* Miss remains a CPU obligation: moe-cache.cu:1862-1901 and
+\* ggml-cpu.c:1676-1703.
 ObserveMiss(e) ==
     /\ nodeState = "idle"
     /\ e \in Experts \ invalidating
@@ -67,7 +67,7 @@ ObserveMiss(e) ==
                     readers, jobExpert, jobGeneration, completedCorrect,
                     invalidating>>
 
-\* Reserve/evict, increment generation, then enqueue: moe-cache.cu:1725-1777.
+\* Reserve/evict, increment generation, then enqueue: moe-cache.cu:1903-1981.
 Admit(e, s) ==
     /\ e \in Experts \ invalidating
     /\ s \in Slots
@@ -84,7 +84,7 @@ Admit(e, s) ==
     /\ UNCHANGED <<nodeState, nodeExpert, pinned, cpuRequired, gpuAccepted,
                     resultCorrect, completedCorrect, invalidating>>
 
-\* Invalidation cancels queued/copying state: moe-cache.cu:2482-2521.
+\* Invalidation cancels queued/copying state: moe-cache.cu:1297-1318, 2691.
 CancelFill(s) ==
     /\ s \in Slots
     /\ slotState[s] = "copying"
@@ -102,7 +102,7 @@ CancelFill(s) ==
                     resultCorrect, completedCorrect, invalidating>>
 
 \* Worker publication checks state, key, and generation under session->mu:
-\* moe-cache.cu:749-770.
+\* moe-cache.cu:875-894.
 PublishFill(s) ==
     /\ s \in Slots
     /\ jobExpert[s] \in Experts \ invalidating
@@ -118,7 +118,7 @@ PublishFill(s) ==
                     completedCorrect, invalidating>>
 
 \* CPU rows are removed only after full CUDA acceptance:
-\* moe-cache.cu:1786-1948 and ggml-cpu.c:1705-1717.
+\* moe-cache.cu:1991-2153 and ggml-cpu.c:1705-1721.
 DispatchAccept ==
     /\ nodeState = "plannedHit" \/
        (AllowEarlySkip /\ nodeState = "plannedMiss")
@@ -129,7 +129,7 @@ DispatchAccept ==
                     readers, jobExpert, jobGeneration, nodeExpert, pinned,
                     resultCorrect, completedCorrect, invalidating>>
 
-\* Reinsert all planned rows before the worker barrier: ggml-cpu.c:1705-1717.
+\* Reinsert all planned rows before the worker barrier: ggml-cpu.c:1706-1717.
 DispatchReject ==
     /\ nodeState = "plannedHit"
     /\ nodeState' = "cpu"
@@ -139,7 +139,7 @@ DispatchReject ==
                     readers, jobExpert, jobGeneration, nodeExpert, pinned,
                     resultCorrect, completedCorrect, invalidating>>
 
-\* Stock CPU miss/fallback execution: ggml-cpu.c:1730-1795.
+\* Stock CPU miss/fallback execution: ggml-cpu.c:1736-1795.
 CpuComplete ==
     /\ nodeState \in {"plannedMiss", "cpu"}
     /\ cpuRequired
@@ -149,7 +149,7 @@ CpuComplete ==
                     readers, jobExpert, jobGeneration, nodeExpert, pinned,
                     cpuRequired, gpuAccepted, completedCorrect, invalidating>>
 
-\* Synchronized result download: moe-cache.cu:1951-2005.
+\* Synchronized result download: moe-cache.cu:2156-2211.
 CollectSuccess ==
     /\ nodeState = "gpu"
     /\ pinned \in Slots
@@ -161,7 +161,7 @@ CollectSuccess ==
                     readers, jobExpert, jobGeneration, nodeExpert, pinned,
                     cpuRequired, gpuAccepted, completedCorrect, invalidating>>
 
-\* Collection failure restores the CPU obligation: ggml-cpu.c:1797-1811.
+\* Collection failure restores the CPU obligation: ggml-cpu.c:1798-1811.
 CollectFailure ==
     /\ nodeState = "gpu"
     /\ nodeState' = "cpu"
@@ -171,7 +171,7 @@ CollectFailure ==
                     readers, jobExpert, jobGeneration, nodeExpert, pinned,
                     resultCorrect, completedCorrect, invalidating>>
 
-\* Release every reader pin and active-source reference: moe-cache.cu:2008-2047.
+\* Release every reader pin and active-source reference: moe-cache.cu:2213-2253.
 EndNode ==
     /\ nodeState = "result"
     /\ nodeState' = "idle"
@@ -188,7 +188,7 @@ EndNode ==
                     jobExpert, jobGeneration, invalidating>>
 
 \* Public write notification starts while source lifetime is still valid:
-\* ggml-backend.cpp:94-103 and moe-cache.cu:2482-2505.
+\* ggml-backend.cpp:94-103 and moe-cache.cu:2687-2710.
 StartInvalidate(e) ==
     /\ e \in Experts \ invalidating
     /\ invalidating' = invalidating \cup {e}
@@ -198,7 +198,7 @@ StartInvalidate(e) ==
                     completedCorrect>>
 
 \* Wait for readers/in-flight source copies, then erase overlapping state:
-\* moe-cache.cu:2490-2541.
+\* moe-cache.cu:2695-2783.
 FinishInvalidate(e) ==
     /\ e \in invalidating
     /\ \A s \in Slots : slotExpert[s] = e => readers[s] = 0
