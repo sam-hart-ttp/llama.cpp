@@ -2712,14 +2712,25 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     ).set_env("LLAMA_ARG_MOE_PREFETCH_MIB"));
     add_opt(common_arg(
         {"--moe-cache-stats"},
-        "print periodic MoE cache and prefetch statistics (implies log verbosity 4)",
+        "print MoE cache and prefetch statistics every 5000 ms and at teardown",
         [](common_params & params) {
             params.moe_cache_stats = true;
-            params.verbosity = std::max<int32_t>(params.verbosity, LOG_LEVEL_TRACE);
-            common_log_set_verbosity_thold(params.verbosity);
-            common_set_env("GGML_CUDA_MOE_CACHE_STATS", "1");
+            common_set_env("GGML_CUDA_MOE_CACHE_STATS_INTERVAL_MS",
+                    std::to_string(params.moe_cache_stats_interval_ms));
         }
     ).set_env("LLAMA_ARG_MOE_CACHE_STATS"));
+    add_opt(common_arg(
+        {"--moe-cache-stats-interval"}, "N",
+        "milliseconds between MoE statistics reports; implies --moe-cache-stats (default: 5000, 0 = teardown only)",
+        [](common_params & params, int value) {
+            if (value < 0) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.moe_cache_stats = true;
+            params.moe_cache_stats_interval_ms = value;
+            common_set_env("GGML_CUDA_MOE_CACHE_STATS_INTERVAL_MS", std::to_string(value));
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_STATS_INTERVAL"));
     GGML_ASSERT(params.n_gpu_layers < 0); // string_format would need to be extended for a default >= 0
     add_opt(common_arg(
         {"-ngl", "--gpu-layers", "--n-gpu-layers"}, "N",

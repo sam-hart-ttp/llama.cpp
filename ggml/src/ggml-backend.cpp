@@ -2064,11 +2064,11 @@ void ggml_backend_sched_set_eval_callback(ggml_backend_sched_t sched, ggml_backe
 
 void ggml_backend_sched_set_moe_streaming(
         ggml_backend_sched_t sched, size_t cache_mib,
-        size_t prefetch_mib, int stats_every) {
+        size_t prefetch_mib, int stats_interval_ms) {
     GGML_ASSERT(sched);
     if (sched->moe_cache_session && ggml_moe_cache.session_configure) {
         ggml_moe_cache.session_configure(
-                sched->moe_cache_session, cache_mib, prefetch_mib, stats_every);
+                sched->moe_cache_session, cache_mib, prefetch_mib, stats_interval_ms);
     }
 }
 

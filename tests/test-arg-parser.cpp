@@ -189,6 +189,7 @@ static void test(void) {
 
     {
         common_params moe_params;
+        const int32_t initial_verbosity = moe_params.verbosity;
         argv = {"binary_name", "-m", "model_file.gguf",
                 "--moe-cache-mib", "256",
                 "--moe-prefetch-mib", "32", "--moe-cache-stats"};
@@ -199,12 +200,30 @@ static void test(void) {
         assert(moe_params.moe_cache_mib == 256);
         assert(moe_params.moe_prefetch_mib == 32);
         assert(moe_params.moe_cache_stats);
-        assert(moe_params.verbosity >= 4);
+        assert(moe_params.moe_cache_stats_interval_ms == 5000);
+        assert(moe_params.verbosity == initial_verbosity);
         assert(moe_params.no_extra_bufts);
         const char * cache_budget = getenv("GGML_CUDA_MOE_CACHE_BUDGET_MB");
         const char * prefetch_budget = getenv("GGML_CUDA_MOE_PREFETCH_BUDGET_MB");
         assert(cache_budget && std::string(cache_budget) == "256");
         assert(prefetch_budget && std::string(prefetch_budget) == "32");
+        const char * stats_interval = getenv("GGML_CUDA_MOE_CACHE_STATS_INTERVAL_MS");
+        assert(stats_interval && std::string(stats_interval) == "5000");
+
+        common_params interval_params;
+        argv = {"binary_name", "-m", "model_file.gguf",
+                "--moe-cache-stats-interval", "250"};
+        assert(true == common_params_parse(
+                argv.size(), list_str_to_char(argv).data(),
+                interval_params, LLAMA_EXAMPLE_COMMON));
+        assert(interval_params.moe_cache_stats);
+        assert(interval_params.moe_cache_stats_interval_ms == 250);
+
+        argv = {"binary_name", "-m", "model_file.gguf",
+                "--moe-cache-stats-interval", "-1"};
+        assert(false == common_params_parse(
+                argv.size(), list_str_to_char(argv).data(),
+                interval_params, LLAMA_EXAMPLE_COMMON));
 
         argv = {"binary_name", "--moe-cache-mib", "-1"};
         assert(false == common_params_parse(
@@ -216,6 +235,7 @@ static void test(void) {
             "GGML_CUDA_MOE_CACHE_BUDGET_MB",
             "GGML_CUDA_MOE_PREFETCH_BUDGET_MB",
             "GGML_CUDA_MOE_CACHE_STATS",
+            "GGML_CUDA_MOE_CACHE_STATS_INTERVAL_MS",
         };
         for (const char * name : moe_env) {
 #ifdef _WIN32

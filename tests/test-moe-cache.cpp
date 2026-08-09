@@ -808,6 +808,62 @@ static bool run_repeated_lifecycle(
     return output_ok && cache_ok;
 }
 
+static bool run_stats_interval(
+        ggml_backend_t cuda,
+        ggml_backend_t cpu,
+        stress_fixture & fixture,
+        log_capture & capture) {
+    configure_cache(nullptr);
+    set_env("GGML_CUDA_MOE_CACHE_STATS_INTERVAL_MS", nullptr);
+    capture.clear();
+
+    ggml_backend_sched_t scheduler = make_scheduler(
+            "cache-stats-interval", cuda, cpu, fixture.graph);
+    if (!scheduler) {
+        return false;
+    }
+    ggml_backend_sched_set_moe_streaming(scheduler, 4, 0, 60000);
+
+    bool output_ok = true;
+    for (int step = 0; step < max_steps && output_ok; step++) {
+        output_ok = compute_matches(
+                "cache-stats-interval", scheduler, fixture.graph,
+                fixture.reference, step);
+        if (step >= 64) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    const bool quiet_before_interval =
+        count_occurrences(capture.get(), "hits=") == 0;
+    capture.clear();
+    ggml_backend_sched_set_moe_streaming(scheduler, 4, 0, 1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+
+    bool periodic_seen = false;
+    for (int step = 0; step < 20 && output_ok && !periodic_seen; step++) {
+        output_ok = compute_matches(
+                "cache-stats-interval", scheduler, fixture.graph,
+                fixture.reference, max_steps + step);
+        periodic_seen = count_occurrences(capture.get(), "hits=") == 1;
+        if (!periodic_seen) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    ggml_backend_sched_free(scheduler);
+    const size_t reports = count_occurrences(capture.get(), "hits=");
+    const bool stats_ok = quiet_before_interval && periodic_seen && reports == 2;
+    if (!stats_ok) {
+        fprintf(stderr,
+                "cache-stats-interval: expected one periodic and one teardown report\n%s",
+                capture.get().c_str());
+    }
+    printf("cache-stats-interval: %s\n",
+            output_ok && stats_ok ? "OK" : "FAIL");
+    return output_ok && stats_ok;
+}
+
 static bool run_fill_invalidation(
         ggml_backend_t cuda,
         ggml_backend_t cpu,
@@ -1665,6 +1721,7 @@ int main() {
         ok &= run_concurrent_sessions(
                 cuda_device, cuda, cpu, stress, capture);
         ok &= run_repeated_lifecycle(cuda, cpu, stress, capture);
+        ok &= run_stats_interval(cuda, cpu, stress, capture);
         ok &= run_fill_invalidation(cuda, cpu, stress, capture);
     }
     free_stress_fixture(stress);

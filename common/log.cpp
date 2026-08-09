@@ -106,7 +106,8 @@ struct common_log_entry {
             }
 
             switch (level) {
-                case GGML_LOG_LEVEL_INFO:  fprintf(fcur, "%sI %s", g_col[COMMON_LOG_COL_GREEN],   g_col[COMMON_LOG_COL_DEFAULT]); break;
+                case GGML_LOG_LEVEL_INFO:
+                case GGML_LOG_LEVEL_STATUS: fprintf(fcur, "%sI %s", g_col[COMMON_LOG_COL_GREEN],   g_col[COMMON_LOG_COL_DEFAULT]); break;
                 case GGML_LOG_LEVEL_WARN:  fprintf(fcur, "%sW %s", g_col[COMMON_LOG_COL_MAGENTA], ""                        ); break;
                 case GGML_LOG_LEVEL_ERROR: fprintf(fcur, "%sE %s", g_col[COMMON_LOG_COL_RED],     ""                        ); break;
                 case GGML_LOG_LEVEL_DEBUG: fprintf(fcur, "%sD %s", g_col[COMMON_LOG_COL_YELLOW],  ""                        ); break;
@@ -442,6 +443,7 @@ static int common_get_verbosity(enum ggml_log_level level) {
     switch (level) {
         case GGML_LOG_LEVEL_DEBUG: return LOG_LEVEL_DEBUG;
         case GGML_LOG_LEVEL_INFO:  return LOG_LEVEL_TRACE;
+        case GGML_LOG_LEVEL_STATUS: return LOG_LEVEL_INFO;
         case GGML_LOG_LEVEL_WARN:  return LOG_LEVEL_WARN;
         case GGML_LOG_LEVEL_ERROR: return LOG_LEVEL_ERROR;
         case GGML_LOG_LEVEL_CONT:  return LOG_LEVEL_TRACE;

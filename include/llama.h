@@ -376,7 +376,7 @@ extern "C" {
         // Experimental CUDA MoE streaming budgets. Zero disables the path.
         size_t  moe_cache_mib;       // persistent decode-cache VRAM budget per selected device
         size_t  moe_prefetch_mib;    // pinned-host prompt-streaming budget per selected device
-        int32_t moe_cache_stats_every; // periodic statistics interval, 0 = teardown only
+        int32_t moe_cache_stats_interval_ms; // -1 = disabled, 0 = teardown only, positive = milliseconds
 
         ggml_backend_sched_eval_callback cb_eval;
         void * cb_eval_user_data;

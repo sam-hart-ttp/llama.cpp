@@ -172,11 +172,14 @@ Programs using the common parser expose:
 | --- | --- |
 | `--moe-cache-mib N` | Persistent decode-cache upper bound per selected CUDA device; `0` disables it |
 | `--moe-prefetch-mib N` | Pinned-host prompt staging upper bound per selected CUDA device; `0` disables it |
-| `--moe-cache-stats` | Print periodic and teardown statistics; raises log verbosity to 4 so backend INFO records are visible |
+| `--moe-cache-stats` | Print statistics every five seconds and at teardown without enabling general trace logging |
+| `--moe-cache-stats-interval N` | Override the periodic interval in milliseconds; implies `--moe-cache-stats`, and `0` selects teardown-only reporting |
 
 Direct library users can set the experimental fields in
 `llama_context_params`: `moe_cache_mib`, `moe_prefetch_mib`, and
-`moe_cache_stats_every`.
+`moe_cache_stats_interval_ms`. The statistics field uses `-1` to disable
+requested reports, `0` for teardown only, and a positive millisecond interval
+for periodic plus teardown reports.
 
 Backend developer controls are read when a scheduler session is created:
 
@@ -191,7 +194,7 @@ Backend developer controls are read when a scheduler session is created:
 | `GGML_CUDA_MOE_CACHE_THROTTLE` | `8` | Fresh misses required before replacement |
 | `GGML_CUDA_MOE_CACHE_QUEUE` | `128` | Queued fill-job bound |
 | `GGML_CUDA_MOE_CACHE_QUEUE_MB` | `512` | Queued source-byte bound |
-| `GGML_CUDA_MOE_CACHE_STATS` | `0` | Collection interval for periodic statistics |
+| `GGML_CUDA_MOE_CACHE_STATS_INTERVAL_MS` | unset | Milliseconds between requested statistics; `0` selects teardown only |
 | `GGML_CUDA_MOE_CACHE_NDEV` | all | Maximum scheduler-selected CUDA devices |
 | `GGML_CUDA_MOE_CACHE_SERIAL_FILL` | `1` | Serialize fill transfers inside a session |
 | `GGML_CUDA_MOE_CACHE_MIN_CC` | `700` | Minimum CC as `major*100 + minor*10` |
@@ -199,9 +202,11 @@ Backend developer controls are read when a scheduler session is created:
 
 The legacy backend variables `GGML_CUDA_MOE_CACHE_MODE=auto|on|off`,
 `GGML_CUDA_MOE_CACHE`, `GGML_CUDA_MOE_CACHE_BUDGET_MB`, and
-`GGML_CUDA_MOE_PREFETCH_BUDGET_MB` remain available for experiments. Prefer the
-CLI or library parameters because raw environment variables do not control model
-repacking.
+`GGML_CUDA_MOE_PREFETCH_BUDGET_MB` remain available for experiments. The old
+`GGML_CUDA_MOE_CACHE_STATS` collection-count interval is also retained for
+backend tests and compatibility, but new callers should use the time-based
+variable. Prefer the CLI or library parameters because raw environment
+variables do not control model repacking.
 
 Keep `GGML_OP_OFFLOAD_MIN_BATCH` above the decode batch size. Generic operation
 offload can otherwise move the entire `MUL_MAT_ID` to CUDA before the CPU hybrid

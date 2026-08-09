@@ -25,6 +25,7 @@ void ggml_moe_cache_register(const void * owner) {
 #include <cerrno>
 #include <climits>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -42,6 +43,7 @@ void ggml_moe_cache_register(const void * owner) {
 #include <vector>
 
 #define MOE_CACHE_LOG(...) GGML_LOG_INFO(__VA_ARGS__)
+#define MOE_CACHE_STATS_LOG(...) GGML_LOG_STATUS(__VA_ARGS__)
 
 enum class moe_cache_slot_state : uint8_t {
     free,
@@ -148,7 +150,8 @@ struct moe_cache_config {
     int readmit_after = 8;
     int queue_max = 128;
     size_t queue_mb = 512;
-    int stats_every = 0;
+    int stats_interval_ms = -1;
+    int legacy_stats_every = 0;
     int max_devices = INT_MAX;
     int min_compute_capability = 700;
     bool serial_fill = true;
@@ -229,6 +232,7 @@ struct moe_cache_device {
     long long collect_failures = 0;
     long long nodes = 0;
     long long collect_calls = 0;
+    int64_t last_stats_us = 0;
     long long prefill_nodes = 0;
     long long prefill_rows = 0;
     long long prefill_failures = 0;
@@ -377,8 +381,14 @@ static moe_cache_config moe_cache_read_config() {
     if (moe_cache_env_i64("GGML_CUDA_MOE_CACHE_QUEUE_MB", 1, 1024 * 1024, value)) {
         config.queue_mb = (size_t)value;
     }
-    if (moe_cache_env_i64("GGML_CUDA_MOE_CACHE_STATS", 0, INT_MAX, value)) {
-        config.stats_every = (int)value;
+    const bool has_stats_interval = moe_cache_env_i64(
+            "GGML_CUDA_MOE_CACHE_STATS_INTERVAL_MS", 0, INT_MAX, value);
+    if (has_stats_interval) {
+        config.stats_interval_ms = (int)value;
+    }
+    if (!has_stats_interval &&
+        moe_cache_env_i64("GGML_CUDA_MOE_CACHE_STATS", 0, INT_MAX, value)) {
+        config.legacy_stats_every = (int)value;
     }
     if (moe_cache_env_i64("GGML_CUDA_MOE_CACHE_NDEV", 1, INT_MAX, value)) {
         config.max_devices = (int)value;
@@ -1203,7 +1213,11 @@ static int moe_cache_discover_pool(
     return moe_cache_find_pool(device, expert_size, wtype);
 }
 
-static void moe_cache_log_stats(moe_cache_device & device) {
+static bool moe_cache_stats_requested(const moe_cache_config & config) {
+    return config.stats_interval_ms >= 0 || config.legacy_stats_every > 0;
+}
+
+static void moe_cache_log_stats(moe_cache_device & device, bool requested) {
     size_t used = 0;
     size_t slots = 0;
     size_t partitions = 0;
@@ -1214,7 +1228,9 @@ static void moe_cache_log_stats(moe_cache_device & device) {
         partitions += pool.partition_residents.size();
     }
     const long long total = device.hits + device.misses;
-    MOE_CACHE_LOG("[moe-cache] CUDA%d hits=%lld/%lld (%.1f%%) used=%zu/%zu partitions=%zu enqueued=%lld filled=%lld fill-fail=%lld evictions=%lld local=%lld reclaim=%lld skips=%lld admission=%lld queue=%zu jobs/%zu MiB dispatch-fail=%lld collect-fail=%lld prefill=%lld nodes/%lld rows prefill-fail=%lld hidden=%lld/%lld\n",
+    char text[1024];
+    snprintf(text, sizeof(text),
+            "[moe-cache] CUDA%d hits=%lld/%lld (%.1f%%) used=%zu/%zu partitions=%zu enqueued=%lld filled=%lld fill-fail=%lld evictions=%lld local=%lld reclaim=%lld skips=%lld admission=%lld queue=%zu jobs/%zu MiB dispatch-fail=%lld collect-fail=%lld prefill=%lld nodes/%lld rows prefill-fail=%lld hidden=%lld/%lld\n",
             device.physical, device.hits, total,
             total ? 100.0 * (double)device.hits / (double)total : 0.0,
             used, slots, partitions,
@@ -1225,6 +1241,31 @@ static void moe_cache_log_stats(moe_cache_device & device) {
             device.dispatch_failures, device.collect_failures,
             device.prefill_nodes, device.prefill_rows, device.prefill_failures,
             device.prefill_fully_hidden, device.prefill_overlap_opportunities);
+    if (requested) {
+        MOE_CACHE_STATS_LOG("%s", text);
+    } else {
+        MOE_CACHE_LOG("%s", text);
+    }
+}
+
+static void moe_cache_maybe_log_stats(
+        const moe_cache_config & config, moe_cache_device & device,
+        bool collected) {
+    bool due = collected && config.legacy_stats_every > 0 &&
+        device.collect_calls % config.legacy_stats_every == 0;
+    if (config.stats_interval_ms > 0) {
+        const int64_t now = ggml_time_us();
+        if (device.last_stats_us == 0) {
+            device.last_stats_us = now;
+        } else if (now - device.last_stats_us >=
+                   (int64_t)config.stats_interval_ms * 1000) {
+            device.last_stats_us = now;
+            due = true;
+        }
+    }
+    if (due) {
+        moe_cache_log_stats(device, true);
+    }
 }
 
 static void * moe_cache_session_create(void * const * backends, int n_backends) {
@@ -1433,7 +1474,8 @@ static void moe_cache_session_destroy(void * opaque) {
         if (device_ptr->nodes > 0 || device_ptr->dispatch_failures > 0 ||
             device_ptr->collect_failures > 0 || device_ptr->prefill_nodes > 0 ||
             device_ptr->prefill_failures > 0) {
-            moe_cache_log_stats(*device_ptr);
+            moe_cache_log_stats(
+                    *device_ptr, moe_cache_stats_requested(session->config));
         }
     }
 
@@ -1446,7 +1488,8 @@ static void moe_cache_session_destroy(void * opaque) {
 }
 
 static void moe_cache_session_configure(
-        void * opaque, size_t cache_mib, size_t prefetch_mib, int stats_every) {
+        void * opaque, size_t cache_mib, size_t prefetch_mib,
+        int stats_interval_ms) {
     moe_cache_session * session = (moe_cache_session *)opaque;
     if (!session) {
         return;
@@ -1460,7 +1503,12 @@ static void moe_cache_session_configure(
     session->config.automatic = false;
     session->config.budget_mb = cache_mib;
     session->config.prefetch_mb = prefetch_mib;
-    session->config.stats_every = std::max(stats_every, 0);
+    session->config.stats_interval_ms = std::max(stats_interval_ms, -1);
+    session->config.legacy_stats_every = 0;
+    const int64_t now = ggml_time_us();
+    for (auto & device_ptr : session->devices) {
+        device_ptr->last_stats_us = now;
+    }
     session->config.min_compute_capability = 700;
     session->config.enabled = cache_mib > 0 || prefetch_mib > 0;
     session->dormant.store(!session->config.enabled);
@@ -2202,10 +2250,7 @@ static int moe_cache_collect(
             device.collect_failures++;
         }
         device.collect_calls++;
-        if (session.config.stats_every > 0 &&
-            device.collect_calls % session.config.stats_every == 0) {
-            moe_cache_log_stats(device);
-        }
+        moe_cache_maybe_log_stats(session.config, device, true);
     }
     return ok ? 1 : 0;
 }
@@ -2660,6 +2705,7 @@ static int moe_cache_prefill(
             device->prefill_rows += (long long)routes.size();
             device->prefill_overlap_opportunities += opportunities;
             device->prefill_fully_hidden += hidden;
+            moe_cache_maybe_log_stats(session->config, *device, false);
             if (device->prefill_overlap_opportunities >= 32 &&
                 device->prefill_fully_hidden == 0) {
                 device->prefetch_disabled.store(true);

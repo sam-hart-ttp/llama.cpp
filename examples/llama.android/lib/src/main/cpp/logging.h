@@ -47,6 +47,7 @@ static inline int android_log_prio_from_ggml(enum ggml_log_level level) {
         case GGML_LOG_LEVEL_ERROR: return ANDROID_LOG_ERROR;
         case GGML_LOG_LEVEL_WARN:  return ANDROID_LOG_WARN;
         case GGML_LOG_LEVEL_INFO:  return ANDROID_LOG_INFO;
+        case GGML_LOG_LEVEL_STATUS: return ANDROID_LOG_INFO;
         case GGML_LOG_LEVEL_DEBUG: return ANDROID_LOG_DEBUG;
         default:                   return ANDROID_LOG_DEFAULT;
     }

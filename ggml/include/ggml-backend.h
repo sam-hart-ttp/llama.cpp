@@ -353,7 +353,7 @@ extern "C" {
 
     // Configure the experimental CUDA MoE streaming extension for this
     // scheduler. Zero budgets disable the corresponding path.
-    GGML_API void                 ggml_backend_sched_set_moe_streaming(ggml_backend_sched_t sched, size_t cache_mib, size_t prefetch_mib, int stats_every);
+    GGML_API void                 ggml_backend_sched_set_moe_streaming(ggml_backend_sched_t sched, size_t cache_mib, size_t prefetch_mib, int stats_interval_ms);
 
     //
     // Meta backend

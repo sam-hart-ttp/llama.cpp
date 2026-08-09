@@ -1665,7 +1665,8 @@ struct llama_context_params common_context_params_to_llama(const common_params &
     cparams.kv_unified        = params.kv_unified;
     cparams.moe_cache_mib     = params.moe_cache_mib;
     cparams.moe_prefetch_mib  = params.moe_prefetch_mib;
-    cparams.moe_cache_stats_every = params.moe_cache_stats ? 1 : 0;
+    cparams.moe_cache_stats_interval_ms = params.moe_cache_stats ?
+        params.moe_cache_stats_interval_ms : -1;
 
     cparams.type_k = params.cache_type_k;
     cparams.type_v = params.cache_type_v;

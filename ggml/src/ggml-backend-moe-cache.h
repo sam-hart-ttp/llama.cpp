@@ -15,7 +15,7 @@ struct ggml_moe_cache_api {
     void * (*session_create)(void * const * backends, int n_backends);
     void   (*session_destroy)(void * session);
     void   (*session_configure)(void * session, size_t cache_mib,
-                                size_t prefetch_mib, int stats_every);
+                                size_t prefetch_mib, int stats_interval_ms);
     // NULL and dormant sessions still create a suppressing thread-local scope.
     void   (*session_enter)(void * session);
     void   (*session_leave)(void * session);
