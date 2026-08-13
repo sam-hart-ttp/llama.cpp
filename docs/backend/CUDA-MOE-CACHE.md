@@ -219,14 +219,34 @@ the oldest unpinned entry from partitions that are strictly over target.
 
 ## Platform builds
 
-The implementation has been built and tested on the development laptop with
-CUDA 11.2, GCC 9, and SM 7.5. Recommended deployment toolchains are:
+The implementation was originally built and tested on the development laptop
+with CUDA 11.2, GCC 9, and SM 7.5. A follow-up Windows validation used CUDA
+13.3.73, MSVC 19.50, and an RTX PRO 500 Blackwell GPU with compute capability
+12.0. Recommended deployment toolchains are:
 
 | Machine | CUDA architecture | Practical toolchain |
 | --- | ---: | --- |
 | GTX 1650 laptop | `75` | CUDA 12.x/13.x container or the verified host CUDA 11.2 build |
+| RTX PRO 500 Blackwell laptop | `120a` | CUDA 13.3.73 with Visual Studio 2026/MSVC 19.50 |
 | Jetson AGX Xavier | `72` | The CUDA release supplied by its JetPack image; CUDA 13 no longer targets every pre-Turing architecture |
 | Jetson AGX Thor | `110` | Thor JetPack/CUDA 13 image |
+
+On the verified Windows build, use static libraries. The default shared-DLL
+layout did not link the cross-backend `ggml_moe_cache` symbol on this branch:
+
+```powershell
+cmake -S . -B build-cuda-static -G Ninja `
+    -DCMAKE_BUILD_TYPE=Release `
+    -DGGML_CUDA=ON `
+    -DGGML_STATIC=ON `
+    -DBUILD_SHARED_LIBS=OFF `
+    -DCMAKE_CUDA_ARCHITECTURES=120
+cmake --build build-cuda-static --target test-moe-cache llama-cli llama-bench -j 8
+```
+
+CMake normalizes architecture `120` to `120a` for this GPU. If the Visual
+Studio developer shell does not expose `nvcc`, set `CUDAToolkit_ROOT` and
+`CMAKE_CUDA_COMPILER` to the CUDA installation and its `bin\nvcc.exe` path.
 
 Example out-of-tree builds:
 

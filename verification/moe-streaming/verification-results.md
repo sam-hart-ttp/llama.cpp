@@ -42,6 +42,28 @@ suite offline eventually reaches a pre-existing network download test and exits
 with `cannot make GET request`; the new option assertions execute before that
 external failure.
 
+### Follow-up Windows validation
+
+On 2026-08-13, the branch built on Windows with Visual Studio 2026/MSVC
+19.50.35723.0, CUDA 13.3.73, and `CMAKE_CUDA_ARCHITECTURES=120` (normalized by
+CMake to `120a`) for an RTX PRO 500 Blackwell laptop GPU (compute capability
+12.0, 6112 MiB VRAM). The build used `GGML_STATIC=ON` and
+`BUILD_SHARED_LIBS=OFF`; the default shared-DLL layout did not link the
+cross-backend `ggml_moe_cache` symbol on this branch.
+
+The static `llama-cli`, `llama-bench`, and `test-moe-cache` targets linked
+successfully. The focused test reported 16 passing cases. Multi-device routing
+was skipped because only one CUDA device is present, and backend unload/reload
+was skipped because the backend is statically linked.
+
+The official Qwen3.6-35B-A3B Q4_K_M GGUF then loaded successfully with
+`--moe-cache-mib 256` and automatic placement. The model loader reported a
+19.06 GiB CPU-mapped model buffer and a 3.78 GiB CUDA model buffer, with all 41
+layers scheduled across the hybrid placement. A one-token smoke prompt measured
+11.1 tokens/s on the initial prompt and 16.5 tokens/s after prompt-cache reuse.
+This was a load and execution smoke test, not a cache throughput benchmark; the
+cache needs a longer matched decode run to produce useful hit and speed data.
+
 ## TLA+
 
 TLC 2.20 used 12 workers and exhaustive breadth-first search.
