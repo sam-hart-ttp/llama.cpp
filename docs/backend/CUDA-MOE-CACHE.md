@@ -302,6 +302,46 @@ placement in all arms. Report prompt and generation throughput separately. A hig
 decode hit rate is not sufficient evidence of a speedup: PCIe transfers, result
 copies, CPU memory bandwidth, routing locality, and GPU MMVQ speed all matter.
 
+## Merging from upstream
+
+After every merge from `upstream/master`, run the gate:
+
+```sh
+MOE_GATE_MODEL=/path/to/moe-model.gguf \
+verification/moe-streaming/merge-gate.sh build-sm75
+```
+
+It rebuilds the affected targets, runs the focused GPU regression, checks that
+the four controls are still advertised, checks the upstream invariant TAG
+sites, and asserts a decode hit-rate floor. Without `MOE_GATE_MODEL` the
+hit-rate stage reports SKIP and the rest of the gate still runs.
+
+The hit-rate floor is the only stage that detects scheduler placement drift.
+`test-moe-cache` drives the provider API directly, so it stays green even if
+expert `MUL_MAT_ID` nodes stop being routed to the CPU backend; in that case
+the cache is simply never consulted and streaming is lost with no failing test.
+The gate fails when the teardown stats line reports `hits=0/0`.
+
+Then grep the TAG sites by hand:
+
+```sh
+grep -rn 'TAG_MUL_MAT_ID_CUDA_GRAPHS' ggml/src/ggml-cuda/
+```
+
+Upstream marks cross-cutting CUDA invariants with greppable `TAG_` comments.
+`TAG_MUL_MAT_ID_CUDA_GRAPHS` is currently the only one, and it guards which
+`MUL_MAT_ID` dispatch paths permit CUDA graph capture. Three sites are expected:
+the `ggml_cuda_mul_mat_id_needs_sync` definition, the assertion on the
+synchronizing fallback in `ggml_cuda_mul_mat_id`, and the graph-compatibility
+check in `ggml_cuda_graph_check_compability`.
+
+Nothing this cache does is captured into a CUDA graph. The provider is driven
+only from the CPU backend's `MUL_MAT_ID` handler, which runs in a separate
+scheduler split, and its fills use their own non-blocking streams while capture
+runs in `cudaStreamCaptureModeRelaxed`. That reasoning depends on expert nodes
+staying on the CPU backend, so read any new or changed TAG site before trusting
+the merge, then update `expected_tag_sites` in `merge-gate.sh`.
+
 ## Current limitations
 
 - CUDA only; other backends register no provider.
