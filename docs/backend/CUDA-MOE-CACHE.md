@@ -21,7 +21,7 @@ Keep routed experts on the CPU and request explicit budgets:
 
 ```sh
 GGML_CUDA_MOE_CACHE_RESERVE_MB=512 \
-./build/bin/llama-cli \
+./build/bin/llama-completion \
     -m /models/Qwen3.6-35B-A3B-Q4_K_M.gguf \
     -ngl 99 -cmoe -fa on \
     --moe-cache-mib 512 \
@@ -233,7 +233,7 @@ Example out-of-tree builds:
 ```sh
 cmake -S . -B build-sm75 -DGGML_CUDA=ON \
     -DCMAKE_CUDA_ARCHITECTURES=75 -DLLAMA_BUILD_TESTS=ON
-cmake --build build-sm75 -j --target test-moe-cache llama-cli
+cmake --build build-sm75 -j --target test-moe-cache llama-completion
 
 cmake -S . -B build-xavier -DGGML_CUDA=ON \
     -DCMAKE_CUDA_ARCHITECTURES=72 -DLLAMA_BUILD_TESTS=ON
@@ -273,11 +273,19 @@ enablement, and backend reload:
 CUDA_VISIBLE_DEVICES=0 ./build-sm75/bin/test-moe-cache
 ```
 
-The built CLI should advertise all three controls before a model run:
+The built generation tool should advertise all four controls before a model run:
 
 ```sh
-./build-sm75/bin/llama-cli --help | rg 'moe-(cache|prefetch)'
+./build-sm75/bin/llama-completion --help | rg 'moe-(cache|prefetch)'
 ```
+
+Use `llama-completion`, not `llama-cli`. Since the CLI rewrite in upstream
+PR #17824 the CLI is a client of the in-process server stack (`llama-cli-impl`
+links `llama-server-impl` and includes `tools/server`), and PR #18670 gated it
+behind `LLAMA_BUILD_SERVER`, which also builds `tools/ui`. `llama-completion`
+is the ungated non-interactive generation tool; it links only `llama-common`
+and `llama`, so it builds in a plain `-DGGML_CUDA=ON -DLLAMA_BUILD_TESTS=ON`
+tree and carries the same `common/arg.cpp` options.
 
 Cache measurements require a long decode warmup: graph-shape discovery, repeated
 demand, and asynchronous fills make the first tokens deliberately cold. Compare
