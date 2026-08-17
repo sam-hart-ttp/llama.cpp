@@ -53,12 +53,12 @@ The decode budget is resolved on first eligible use:
 usable = min(requested MiB, free CUDA memory - reserve MiB)
 ```
 
-The default reserve is 512 MiB. On a 4 GiB discrete GPU, start with a 128–512
+The default reserve is 512 MiB. On a 4 GiB discrete GPU, start with a 128-512
 MiB cache and inspect normal CUDA/KV allocations before increasing it. The CUDA
 allocator may trim all streaming storage once and retry if a normal allocation
 runs out of memory; that device then remains disabled for the session.
 
-On Jetson unified-memory systems, “CPU-resident” and CUDA memory draw from the
+On Jetson unified-memory systems, "CPU-resident" and CUDA memory draw from the
 same physical DRAM pool. Streaming can still reduce the CUDA virtual/device
 working set and avoid keeping every expert in an accelerator allocation, but it
 does not reduce the checkpoint's total DRAM requirement. The practical gain is
