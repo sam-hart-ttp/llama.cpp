@@ -197,7 +197,7 @@ else
         > "$log_dir/decode.log" 2>&1
     decode_exit=$?
 
-    stats_line=$(grep '^\[moe-cache\]' "$log_dir/decode.log" | tail -1)
+    stats_line=$(grep '\[moe-cache\].*hits=[0-9][0-9]*/[0-9][0-9]*' "$log_dir/decode.log" | tail -1)
 
     if [ "$decode_exit" -ne 0 ]; then
         fail hit-rate-floor "llama-completion exit $decode_exit"
