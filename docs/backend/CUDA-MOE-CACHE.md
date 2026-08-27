@@ -228,6 +228,14 @@ CUDA 11.2, GCC 9, and SM 7.5. Recommended deployment toolchains are:
 | Jetson AGX Xavier | `72` | The CUDA release supplied by its JetPack image; CUDA 13 no longer targets every pre-Turing architecture |
 | Jetson AGX Thor | `110` | Thor JetPack/CUDA 13 image |
 
+Jetson AGX Xavier (JetPack R35.6.5, CUDA 11.4) also needs `-DGGML_CUDA_NO_VMM=ON`.
+Its Tegra integrated GPU cannot satisfy `ggml_cuda_pool_vmm`'s upfront
+`cuMemAddressReserve` of `CUDA_POOL_VMM_MAX_SIZE` (32 GiB): every CUDA
+allocation through that pool aborts with `CUDA error: out of memory` at the
+`cuMemAddressReserve` call in `ggml-cuda.cu`, well before the device is
+actually short on memory. `GGML_CUDA_NO_VMM` switches to the legacy pool
+allocator, which works normally on Xavier's unified memory.
+
 Example out-of-tree builds:
 
 ```sh
@@ -235,7 +243,7 @@ cmake -S . -B build-sm75 -DGGML_CUDA=ON \
     -DCMAKE_CUDA_ARCHITECTURES=75 -DLLAMA_BUILD_TESTS=ON
 cmake --build build-sm75 -j --target test-moe-cache llama-completion
 
-cmake -S . -B build-xavier -DGGML_CUDA=ON \
+cmake -S . -B build-xavier -DGGML_CUDA=ON -DGGML_CUDA_NO_VMM=ON \
     -DCMAKE_CUDA_ARCHITECTURES=72 -DLLAMA_BUILD_TESTS=ON
 
 cmake -S . -B build-thor -DGGML_CUDA=ON \
