@@ -84,6 +84,79 @@ floor is the only check that can detect scheduler placement drift, because
 `test-moe-cache` drives the provider API directly and stays green even if
 expert `MUL_MAT_ID` nodes stop reaching the CPU backend handler.
 
+### Windows laptop capacity ladder
+
+On 2026-08-28, after merging the current GitHub branch, the static Windows CUDA
+build was refreshed on the Dell Pro Max 14 with CUDA 13.3.73 and MSVC. The
+`llama-completion`, `llama-bench`, `test-moe-cache`, and `test-arg-parser`
+targets linked. The focused `test-moe-cache` run reported 17 OK cases, with the
+multi-device and backend-unload cases skipped as expected on a one-GPU static
+build.
+
+The machine used for the ladder exposed an RTX PRO 500 Blackwell laptop GPU
+(6113 MiB VRAM, compute capability 12.0) to WSL, with about 15 GiB RAM visible
+inside WSL. Logs, CSV summaries, and GPU-memory samples were kept as ignored
+local files under `verification/moe-streaming/run-logs/`; they are not part of
+this branch.
+
+The existing Qwen3.6-35B-A3B Q4_K_M GGUF was used first to map the decode-cache
+budget. Runs used `llama-completion`, `-n 256`, `-c 512`, `-t 6`, `-ngl 99`,
+`-cmoe`, `--no-repack`, and `-fa on`. All cache-size rows exited 0. Throughput
+varied enough that the table should be read as a capacity and hit-rate result,
+not a confidence interval.
+
+| Model | Cache request | Decode hit rate | Slots used | Peak GPU memory |
+| --- | ---: | ---: | ---: | ---: |
+| Qwen3.6-35B-A3B Q4_K_M | 128 MiB | 6.6% | 223/223 | 2748 MiB |
+| Qwen3.6-35B-A3B Q4_K_M | 256 MiB | 16.8% | 451/451 | 2876 MiB |
+| Qwen3.6-35B-A3B Q4_K_M | 768 MiB | 38.4% | 1361/1361 | 3388 MiB |
+| Qwen3.6-35B-A3B Q4_K_M | 1024 MiB | 38.4% | 1816/1816 | 3644 MiB |
+| Qwen3.6-35B-A3B Q4_K_M | 1792 MiB | 53.3% | 3181/3181 | 4412 MiB |
+| Qwen3.6-35B-A3B Q4_K_M | 2048 MiB | 53.2% | 3608/3608 | 4652 MiB |
+| Qwen3.6-35B-A3B Q4_K_M | 3072 MiB | 53.3% | 3608/3608 | 4652 MiB |
+
+For this prompt and context, Qwen3.6 reached its observed effective decode-cache
+plateau at about a 2048 MiB request: larger requests did not increase slots or
+peak GPU memory. Separate prefill-budget probes showed that a 1 MiB prefill
+budget did not activate useful reporting, while 2 MiB and larger budgets ran 240
+prefill nodes over 9600 rows with `hidden=6513/6513`. On this laptop that prompt
+path remained slower than the baseline, so the prefill result is a viability
+check, not evidence of a speedup.
+
+The first larger capacity target was the split GGUF
+`bartowski/Qwen_Qwen3-235B-A22B-Instruct-2507-GGUF`, quantized as IQ2_XS. The
+two shards were downloaded directly into `models/`, verified against Hugging
+Face API sizes, and occupied 61.110 GiB total. This avoided an extra Hugging
+Face cache copy. Free space on the C: volume after download was about 115 GiB.
+
+A lowest-risk smoke run used `-ngl 0`, `-n 1`, `-c 256`, `-cmoe`, `--no-repack`,
+and both MoE streaming budgets set to zero. It exited 0, loaded in 21.99 s, and
+measured 0.35 prompt tokens/s with a 626 MiB GPU-memory peak. Further one-token
+smokes with cache disabled all exited 0 for `-ngl` values 8, 16, 24, 32, 48, 64,
+80, and 99. The `-ngl 99` smoke peaked at 3802 MiB, leaving room for a bounded
+expert cache.
+
+The A22B viability ladder used the same short prompt, `-c 256`, `-t 6`, `-cmoe`,
+`--no-repack`, and `-fa on`. A 128 MiB CUDA reserve was used for the tradeoff
+runs that request larger caches. All rows below exited 0.
+
+| Model | Tokens | `-ngl` | Cache request | Decode tokens/s | Decode hit rate | Slots used | Peak GPU memory |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen3-235B-A22B IQ2_XS | 64 | 99 | 0 MiB | 1.44 | n/a | n/a | 3802 MiB |
+| Qwen3-235B-A22B IQ2_XS | 64 | 99 | 1536 MiB | 1.47 | 9.4% | 518/518 | 4654 MiB |
+| Qwen3-235B-A22B IQ2_XS | 64 | 80 | 3072 MiB | 1.46 | 15.3% | 799/799 | 4652 MiB |
+| Qwen3-235B-A22B IQ2_XS | 64 | 0 | 4096 MiB | 1.26 | 39.1% | 2461/2461 | 4652 MiB |
+| Qwen3-235B-A22B IQ2_XS | 256 | 80 | 3072 MiB | 1.37 | 14.2% | 799/799 | 4652 MiB |
+| Qwen3-235B-A22B IQ2_XS | 256 | 0 | 4096 MiB | 1.29 | 38.8% | 2461/2461 | 4652 MiB |
+
+The A22B model is therefore viable on this laptop with mmap-backed CPU-resident
+experts and a bounded CUDA expert cache. The largest observed expert-cache
+working set was 2461 slots at `-ngl 0`, but that was not the fastest setting:
+keeping dense layers on the GPU while accepting fewer expert slots gave better
+throughput in the sustained runs. The useful tuning variable is the balance
+between dense-layer offload and expert-cache capacity, not simply the largest
+cache request.
+
 ## TLA+
 
 TLC 2.20 used 12 workers and exhaustive breadth-first search.
