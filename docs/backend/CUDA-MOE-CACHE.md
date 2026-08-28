@@ -21,7 +21,7 @@ Keep routed experts on the CPU and request explicit budgets:
 
 ```sh
 GGML_CUDA_MOE_CACHE_RESERVE_MB=512 \
-./build/bin/llama-cli \
+./build/bin/llama-completion \
     -m /models/Qwen3.6-35B-A3B-Q4_K_M.gguf \
     -ngl 99 -cmoe -fa on \
     --moe-cache-mib 512 \
@@ -53,12 +53,12 @@ The decode budget is resolved on first eligible use:
 usable = min(requested MiB, free CUDA memory - reserve MiB)
 ```
 
-The default reserve is 512 MiB. On a 4 GiB discrete GPU, start with a 128–512
+The default reserve is 512 MiB. On a 4 GiB discrete GPU, start with a 128-512
 MiB cache and inspect normal CUDA/KV allocations before increasing it. The CUDA
 allocator may trim all streaming storage once and retry if a normal allocation
 runs out of memory; that device then remains disabled for the session.
 
-On Jetson unified-memory systems, “CPU-resident” and CUDA memory draw from the
+On Jetson unified-memory systems, "CPU-resident" and CUDA memory draw from the
 same physical DRAM pool. Streaming can still reduce the CUDA virtual/device
 working set and avoid keeping every expert in an accelerator allocation, but it
 does not reduce the checkpoint's total DRAM requirement. The practical gain is
@@ -248,14 +248,22 @@ CMake normalizes architecture `120` to `120a` for this GPU. If the Visual
 Studio developer shell does not expose `nvcc`, set `CUDAToolkit_ROOT` and
 `CMAKE_CUDA_COMPILER` to the CUDA installation and its `bin\nvcc.exe` path.
 
+Jetson AGX Xavier (JetPack R35.6.5, CUDA 11.4) also needs `-DGGML_CUDA_NO_VMM=ON`.
+Its Tegra integrated GPU cannot satisfy `ggml_cuda_pool_vmm`'s upfront
+`cuMemAddressReserve` of `CUDA_POOL_VMM_MAX_SIZE` (32 GiB): every CUDA
+allocation through that pool aborts with `CUDA error: out of memory` at the
+`cuMemAddressReserve` call in `ggml-cuda.cu`, well before the device is
+actually short on memory. `GGML_CUDA_NO_VMM` switches to the legacy pool
+allocator, which works normally on Xavier's unified memory.
+
 Example out-of-tree builds:
 
 ```sh
 cmake -S . -B build-sm75 -DGGML_CUDA=ON \
     -DCMAKE_CUDA_ARCHITECTURES=75 -DLLAMA_BUILD_TESTS=ON
-cmake --build build-sm75 -j --target test-moe-cache llama-cli
+cmake --build build-sm75 -j --target test-moe-cache llama-completion
 
-cmake -S . -B build-xavier -DGGML_CUDA=ON \
+cmake -S . -B build-xavier -DGGML_CUDA=ON -DGGML_CUDA_NO_VMM=ON \
     -DCMAKE_CUDA_ARCHITECTURES=72 -DLLAMA_BUILD_TESTS=ON
 
 cmake -S . -B build-thor -DGGML_CUDA=ON \
@@ -293,11 +301,19 @@ enablement, and backend reload:
 CUDA_VISIBLE_DEVICES=0 ./build-sm75/bin/test-moe-cache
 ```
 
-The built CLI should advertise all three controls before a model run:
+The built generation tool should advertise all four controls before a model run:
 
 ```sh
-./build-sm75/bin/llama-cli --help | rg 'moe-(cache|prefetch)'
+./build-sm75/bin/llama-completion --help | rg 'moe-(cache|prefetch)'
 ```
+
+Use `llama-completion`, not `llama-cli`. Since the CLI rewrite in upstream
+PR #17824 the CLI is a client of the in-process server stack (`llama-cli-impl`
+links `llama-server-impl` and includes `tools/server`), and PR #18670 gated it
+behind `LLAMA_BUILD_SERVER`, which also builds `tools/ui`. `llama-completion`
+is the ungated non-interactive generation tool; it links only `llama-common`
+and `llama`, so it builds in a plain `-DGGML_CUDA=ON -DLLAMA_BUILD_TESTS=ON`
+tree and carries the same `common/arg.cpp` options.
 
 Cache measurements require a long decode warmup: graph-shape discovery, repeated
 demand, and asynchronous fills make the first tokens deliberately cold. Compare
@@ -313,6 +329,46 @@ Use identical model, prompt, context, threads, expert placement, and CUDA-layer
 placement in all arms. Report prompt and generation throughput separately. A high
 decode hit rate is not sufficient evidence of a speedup: PCIe transfers, result
 copies, CPU memory bandwidth, routing locality, and GPU MMVQ speed all matter.
+
+## Merging from upstream
+
+After every merge from `upstream/master`, run the gate:
+
+```sh
+MOE_GATE_MODEL=/path/to/moe-model.gguf \
+verification/moe-streaming/merge-gate.sh build-sm75
+```
+
+It rebuilds the affected targets, runs the focused GPU regression, checks that
+the four controls are still advertised, checks the upstream invariant TAG
+sites, and asserts a decode hit-rate floor. Without `MOE_GATE_MODEL` the
+hit-rate stage reports SKIP and the rest of the gate still runs.
+
+The hit-rate floor is the only stage that detects scheduler placement drift.
+`test-moe-cache` drives the provider API directly, so it stays green even if
+expert `MUL_MAT_ID` nodes stop being routed to the CPU backend; in that case
+the cache is simply never consulted and streaming is lost with no failing test.
+The gate fails when the teardown stats line reports `hits=0/0`.
+
+Then grep the TAG sites by hand:
+
+```sh
+grep -rn 'TAG_MUL_MAT_ID_CUDA_GRAPHS' ggml/src/ggml-cuda/
+```
+
+Upstream marks cross-cutting CUDA invariants with greppable `TAG_` comments.
+`TAG_MUL_MAT_ID_CUDA_GRAPHS` is currently the only one, and it guards which
+`MUL_MAT_ID` dispatch paths permit CUDA graph capture. Three sites are expected:
+the `ggml_cuda_mul_mat_id_needs_sync` definition, the assertion on the
+synchronizing fallback in `ggml_cuda_mul_mat_id`, and the graph-compatibility
+check in `ggml_cuda_graph_check_compability`.
+
+Nothing this cache does is captured into a CUDA graph. The provider is driven
+only from the CPU backend's `MUL_MAT_ID` handler, which runs in a separate
+scheduler split, and its fills use their own non-blocking streams while capture
+runs in `cudaStreamCaptureModeRelaxed`. That reasoning depends on expert nodes
+staying on the CPU backend, so read any new or changed TAG site before trusting
+the merge, then update `expected_tag_sites` in `merge-gate.sh`.
 
 ## Current limitations
 

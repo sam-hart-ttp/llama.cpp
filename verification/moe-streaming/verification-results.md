@@ -1,9 +1,14 @@
 # Verification results
 
-Date: 2026-08-04; revalidated 2026-08-06. Source base: upstream llama.cpp
-`1c3c9674d` plus this extension, since committed on `moe-streaming-research`
-as `7cc3ffbc7` (implementation) and `dcacef205` (verification models), then
-merged with upstream `b10289` in `9b23d90c5`.
+Date: 2026-08-04; revalidated 2026-08-06 and 2026-08-17. Source base: upstream
+llama.cpp `1c3c9674d` plus this extension, since committed on
+`moe-streaming-research` as `7cc3ffbc7` (implementation) and `dcacef205`
+(verification models), then merged with upstream `b10289` in `9b23d90c5` and
+carried forward to upstream `7077abbe1` in `21c898a7b`.
+
+The 2026-08-17 pass revalidated the build and runtime tests after that merge.
+The TLA+, Lean, and Maxima results were not re-run because the merge left
+`verification/` byte-identical.
 
 ## Build and runtime tests
 
@@ -22,6 +27,7 @@ The focused GPU regression checks:
 - layer-partitioned borrowing/reclamation and resistance to cross-layer LRU
   scan thrashing;
 - a pool below the legacy 64-slot threshold;
+- throttled statistics reporting at a configured interval;
 - selected-expert prefill and library-level enable-after-environment-off.
 
 The final executable is run as:
@@ -30,12 +36,18 @@ The final executable is run as:
 CUDA_VISIBLE_DEVICES=0 ./build-moe-cuda9/bin/test-moe-cache
 ```
 
-All runnable cases passed. Multi-device routing was skipped because the laptop
-has one CUDA GPU; backend unload/reload was skipped because this configuration
-links the CUDA backend statically.
+All 17 runnable cases passed. Multi-device routing was skipped because the
+laptop has one CUDA GPU; backend unload/reload was skipped because this
+configuration links the CUDA backend statically.
 
-The CPU `llama-cli` target also builds, and `llama-cli --help` exposes
-`--moe-cache-mib`, `--moe-prefetch-mib`, and `--moe-cache-stats`.
+The `llama-completion` target also builds, and `llama-completion --help`
+exposes `--moe-cache-mib`, `--moe-prefetch-mib`, `--moe-cache-stats`, and
+`--moe-cache-stats-interval`. Earlier revisions of this file named `llama-cli`.
+That target is no longer buildable in this configuration: upstream PR #17824
+rebuilt the CLI on the in-process server stack and PR #18670 gated it behind
+`LLAMA_BUILD_SERVER`, which this build sets to `OFF`. The options are
+registered in `common/arg.cpp`, so every tool built from common args still
+carries them.
 
 The common argument-parser target builds. Running the complete existing parser
 suite offline eventually reaches a pre-existing network download test and exits
@@ -63,6 +75,14 @@ layers scheduled across the hybrid placement. A one-token smoke prompt measured
 11.1 tokens/s on the initial prompt and 16.5 tokens/s after prompt-cache reuse.
 This was a load and execution smoke test, not a cache throughput benchmark; the
 cache needs a longer matched decode run to produce useful hit and speed data.
+
+These checks are collected in `merge-gate.sh` in this directory, which is the
+script to run after every merge from `upstream/master`. It adds two checks that
+this file previously carried only as prose: the count of upstream
+`TAG_MUL_MAT_ID_CUDA_GRAPHS` sites, and a decode hit-rate floor. The hit-rate
+floor is the only check that can detect scheduler placement drift, because
+`test-moe-cache` drives the provider API directly and stays green even if
+expert `MUL_MAT_ID` nodes stop reaching the CPU backend handler.
 
 ## TLA+
 
@@ -126,8 +146,11 @@ sum to the slot count, and solved the two-partition full-pool equation as
 
 ## Hardware gap
 
-A local Qwen3.6-35B-A3B Q4_K_M GGUF is now present and runs on the GTX 1650
-laptop. Before the layer-partitioning change, a matched 256-token decode measured
+The Qwen3.6-35B-A3B Q4_K_M GGUF used for the measurements below was present on
+the laptop when they were taken. It is not on this workspace as of 2026-08-17,
+so the `merge-gate.sh` hit-rate floor reported SKIP on that revalidation and
+the figures below have not been re-measured since. Before the layer-partitioning
+change, a matched 256-token decode measured
 24.22 token/s with streaming off and 25.16 token/s with a requested 768 MiB
 cache (627 MiB effective after scratch/reserve, 1,115 slots, 33.0% hit rate).
 A later matched A/B used 1,179 slots (663 MiB slab), six CPU threads, a fixed
